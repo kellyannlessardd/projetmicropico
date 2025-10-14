@@ -146,6 +146,14 @@ def handle_uart():
                 print("Received setpoint:", expected_setpoint)
             except Exception:
                 pass
+        # Explicitly handle a literal hello message so it "pops up" on the REPL
+        elif s.lower() == 'hello world':
+            # Print prominently and send an optional acknowledgement
+            print('>>> RECEIVED:', s)
+            try:
+                uart.write(b'ACK:hello\n')
+            except Exception:
+                pass
         else:
             print("UART RX (unknown):", s)
 
