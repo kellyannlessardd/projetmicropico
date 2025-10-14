@@ -31,8 +31,8 @@ def set_duty(percent: float):
 
 # Send the desired duty to receiver via UART
 def send_setpoint():
-    msg = "SET:{:.2f}\n".format(duty_percent)
-    uart.write(msg.encode())
+    # send a simple hello message instead of the SET:... payload
+    uart.write(b"hello world\n")
 
 # Read any incoming UART lines (non-blocking) and print them
 def read_uart_lines():
