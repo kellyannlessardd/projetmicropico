@@ -36,19 +36,10 @@ def send_setpoint():
 
 # Read any incoming UART lines (non-blocking) and print them
 def read_uart_lines():
+    # Non-blocking read but do not print anything (silent transmitter side)
     if uart.any():
         try:
-            line = uart.readline()
-            if line:
-                try:
-                    # uart.readline() may return bytes or str depending on environment
-                    if isinstance(line, bytes):
-                        s = line.decode().strip()
-                    else:
-                        s = str(line).strip()
-                    print("UART RX:", s)
-                except Exception:
-                    print("UART RX (raw):", line)
+            _ = uart.readline()
         except Exception:
             pass
 
@@ -71,26 +62,22 @@ def demo_ramp(step=5.0, hold_time=0.05):
         time.sleep(hold_time)
         p -= step
 
-# Main loop
+# Main loop (transmitter)
 if __name__ == '__main__':
-    print("PWM transmitter starting: pin GP{} freq {}Hz".format(PWM_PIN, FREQ))
+    # run silently; do not print startup
     set_duty(duty_percent)
 
     try:
         while True:
-            # Send setpoint every 1s and print any measurements
+            # Send setpoint every 1s (silent) and poll UART without printing
             send_setpoint()
-            # Poll UART for a short period
             t0 = time.ticks_ms()
             while time.ticks_diff(time.ticks_ms(), t0) < 1000:
                 read_uart_lines()
                 time.sleep(0.05)
 
-            # Optional: you can call demo_ramp() once to exercise
-            # demo_ramp()
-
     except KeyboardInterrupt:
-        print("Stopped by user")
+        # silently deinit PWM
         pwm.deinit()
 
 
@@ -138,49 +125,43 @@ def handle_uart():
                 s = str(line).strip()
         except Exception:
             return
-        # Expect "SET:xx"
+        # Expect "SET:xx" — parse/set silently
         if s.startswith('SET:'):
             try:
                 val = float(s.split(':',1)[1])
                 expected_setpoint = val
-                print("Received setpoint:", expected_setpoint)
             except Exception:
                 pass
-        # Explicitly handle a literal hello message so it "pops up" on the REPL
+        # If the literal hello message arrives, print only its text
         elif s.lower() == 'hello world':
-            # Print prominently and send an optional acknowledgement
-            print('>>> RECEIVED:', s)
+            # Print exactly the received message (no prefix)
+            print(s)
             try:
                 uart.write(b'ACK:hello\n')
             except Exception:
                 pass
-        else:
-            print("UART RX (unknown):", s)
+        # otherwise ignore silently
 
 # Main loop: sample, compute duty, report
 if __name__ == '__main__':
-    print("ADC receiver starting: ADC GP{}".format(ADC_PIN))
+    # receiver runs silently except when printing incoming messages
     try:
         while True:
             # process any commands first
             handle_uart()
 
-            # read averaged voltage from RC filter
+            # read averaged voltage from RC filter and send measurement (silent)
             v = read_avg_voltage()
-            # duty = Vavg / Vref * 100
             duty = (v / VREF) * 100.0
-            # clamp
             if duty < 0.0:
                 duty = 0.0
             if duty > 100.0:
                 duty = 100.0
 
-            # print and report
-            print("Vavg={:.3f} V -> duty_est={:.2f}%".format(v, duty))
             send_measurement(duty)
 
-            # short pause between measurements (depends on RC tau)
+            # short pause between measurements
             time.sleep(0.5)
 
     except KeyboardInterrupt:
-        print("Stopped by user")
+        pass
