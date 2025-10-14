@@ -1,4 +1,3 @@
-
 from machine import ADC, Pin, UART, PWM
 import time
 
@@ -31,15 +30,24 @@ def set_duty(percent: float):
 
 # Send the desired duty to receiver via UART
 def send_setpoint():
-    # send a simple hello message instead of the SET:... payload
-    uart.write(b"hello world\n")
+    msg = "SET:{:.2f}\n".format(duty_percent)
+    uart.write(msg.encode())
 
 # Read any incoming UART lines (non-blocking) and print them
 def read_uart_lines():
-    # Non-blocking read but do not print anything (silent transmitter side)
     if uart.any():
         try:
-            _ = uart.readline()
+            line = uart.readline()
+            if line:
+                try:
+                    # uart.readline() may return bytes or str depending on environment
+                    if isinstance(line, bytes):
+                        s = line.decode().strip()
+                    else:
+                        s = str(line).strip()
+                    print("UART RX:", s)
+                except Exception:
+                    print("UART RX (raw):", line)
         except Exception:
             pass
 
@@ -62,22 +70,26 @@ def demo_ramp(step=5.0, hold_time=0.05):
         time.sleep(hold_time)
         p -= step
 
-# Main loop (transmitter)
+# Main loop
 if __name__ == '__main__':
-    # run silently; do not print startup
+    print("PWM transmitter starting: pin GP{} freq {}Hz".format(PWM_PIN, FREQ))
     set_duty(duty_percent)
 
     try:
         while True:
-            # Send setpoint every 1s (silent) and poll UART without printing
+            # Send setpoint every 1s and print any measurements
             send_setpoint()
+            # Poll UART for a short period
             t0 = time.ticks_ms()
             while time.ticks_diff(time.ticks_ms(), t0) < 1000:
                 read_uart_lines()
                 time.sleep(0.05)
 
+            # Optional: you can call demo_ramp() once to exercise
+            # demo_ramp()
+
     except KeyboardInterrupt:
-        # silently deinit PWM
+        print("Stopped by user")
         pwm.deinit()
 
 
@@ -125,43 +137,41 @@ def handle_uart():
                 s = str(line).strip()
         except Exception:
             return
-        # Expect "SET:xx" — parse/set silently
+        # Expect "SET:xx"
         if s.startswith('SET:'):
             try:
                 val = float(s.split(':',1)[1])
                 expected_setpoint = val
+                print("Received setpoint:", expected_setpoint)
             except Exception:
                 pass
-        # If the literal hello message arrives, print only its text
-        elif s.lower() == 'hello world':
-            # Print exactly the received message (no prefix)
-            print(s)
-            try:
-                uart.write(b'ACK:hello\n')
-            except Exception:
-                pass
-        # otherwise ignore silently
+        else:
+            print("UART RX (unknown):", s)
 
 # Main loop: sample, compute duty, report
 if __name__ == '__main__':
-    # receiver runs silently except when printing incoming messages
+    print("ADC receiver starting: ADC GP{}".format(ADC_PIN))
     try:
         while True:
             # process any commands first
             handle_uart()
 
-            # read averaged voltage from RC filter and send measurement (silent)
+            # read averaged voltage from RC filter
             v = read_avg_voltage()
+            # duty = Vavg / Vref * 100
             duty = (v / VREF) * 100.0
+            # clamp
             if duty < 0.0:
                 duty = 0.0
             if duty > 100.0:
                 duty = 100.0
 
+            # print and report
+            print("Vavg={:.3f} V -> duty_est={:.2f}%".format(v, duty))
             send_measurement(duty)
 
-            # short pause between measurements
+            # short pause between measurements (depends on RC tau)
             time.sleep(0.5)
 
     except KeyboardInterrupt:
-        pass
+        print("Stopped by user")
